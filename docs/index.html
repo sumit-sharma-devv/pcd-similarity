@@ -261,10 +261,11 @@ function syncMethod() {
 methodSel.addEventListener('change', syncMethod);
 syncMethod();
 const fmt = v => Number.isInteger(v) ? v.toLocaleString() : v.toFixed(6);
+const VERSION = '4'; // bump when worker.js / pcd.js / metrics.js change
 let worker;
 function runWorker(msg, transfer) {
   return new Promise((resolve, reject) => {
-    worker?.terminate(); worker = new Worker('worker.js');
+    worker?.terminate(); worker = new Worker('worker.js?v=' + VERSION);
     worker.onmessage = ({ data }) => data.ok ? resolve(data.result) : reject(new Error(data.error));
     worker.onerror = e => reject(new Error(e.message || 'Worker failed'));
     worker.postMessage(msg, transfer);
@@ -281,6 +282,7 @@ form.addEventListener('submit', async e => {
     const opts = { method: methodSel.value, alpha: num('alpha'), tau: num('tau'), scale: num('scale'), voxel: num('voxel') };
     for (const k of ['alpha', 'tau', 'scale', 'voxel']) if (!(opts[k] > 0)) throw new Error(`${k} must be a positive number.`);
     const d = await runWorker({ bufA, bufB, ...opts, normalize: document.getElementById('norm').checked }, [bufA, bufB]);
+    if (!METHODS[d.method]) throw new Error('Out-of-date cached script; please hard refresh (Cmd/Ctrl+Shift+R).');
     const m = METHODS[d.method];
     document.getElementById('sv').textContent = (d.similarity * 100).toFixed(2) + '%';
     document.getElementById('scap').textContent = `similarity by ${m.full} = ${m.rule}; 100% = identical`;

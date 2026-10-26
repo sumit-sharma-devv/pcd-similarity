@@ -1,5 +1,7 @@
 // Runs parsing + metrics off the main thread so the page stays responsive.
-importScripts('pcd.js', 'metrics.js');
+// Version suffix busts caches so the page, worker and scripts always come from the same release.
+const V = new URL(self.location.href).search || '';
+importScripts('pcd.js' + V, 'metrics.js' + V);
 self.onmessage = ({ data }) => {
   try {
     const a = PCD.readPCD(data.bufA), b = PCD.readPCD(data.bufB);
