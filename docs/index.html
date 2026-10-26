@@ -22,6 +22,9 @@
   label.drop input { display:none; }
   .name { margin-top:6px; word-break:break-all; color:var(--accent); }
   .opts { display:flex; gap:16px; flex-wrap:wrap; margin-top:16px; align-items:center; color:var(--muted); font-size:13px; }
+  select { padding:7px 8px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--fg); font-size:14px; }
+  tr.sel td { background:color-mix(in srgb, var(--accent) 12%, transparent); font-weight:600; }
+  h3.t { margin:18px 0 0; font-size:14px; color:var(--muted); font-weight:600; }
   .opts input[type=number] { width:80px; padding:4px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--fg); }
   button { margin-top:16px; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 20px; font-size:15px; cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
@@ -52,8 +55,21 @@
       <label class="drop"><strong>File B</strong>Click or drop a .pcd
         <input type="file" name="file_b" accept=".pcd" required><div class="name"></div></label>
     </div>
+    <div class="opts" style="align-items:flex-start">
+      <label style="display:flex;flex-direction:column;gap:4px;flex:1 1 280px">Similarity method
+        <select name="method" id="method">
+          <option value="dcd">DCD – Density-aware Chamfer Distance</option>
+          <option value="cd">CD – Chamfer Distance only</option>
+          <option value="emd">EMD – Earth Mover's Distance only</option>
+          <option value="voxel">Voxel IoU</option>
+        </select>
+        <span id="mdesc" style="font-size:12px"></span>
+      </label>
+    </div>
     <div class="opts">
-      <label>α <input type="number" name="alpha" value="1000" step="any" min="0"></label>
+      <label data-p="alpha">α <input type="number" name="alpha" value="1000" step="any" min="0"></label>
+      <label data-p="scale">Distance scale s <input type="number" name="scale" value="0.05" step="any" min="0"></label>
+      <label data-p="voxel">Voxel size <input type="number" name="voxel" value="0.05" step="any" min="0"></label>
       <label>F-score τ <input type="number" name="tau" value="0.01" step="any" min="0"></label>
       <label><input type="checkbox" id="norm" checked> Normalize scale (by A)</label>
     </div>
@@ -62,7 +78,10 @@
   </form>
 
   <section id="result" class="card" hidden>
-    <div id="score"><span id="sv"></span><small>similarity (1 − DCD), 1.0 = identical</small></div>
+    <div id="score"><span id="sv"></span><small id="scap"></small></div>
+    <h3 class="t">Similarity by method</h3>
+    <table id="tbl-m"></table>
+    <h3 class="t">Other metrics</h3>
     <table id="tbl"></table>
   </section>
 
@@ -223,6 +242,25 @@ const ROWS = [
   ['fscore','F-score','higher is better'],
   ['points_a','Points in A'], ['points_b','Points in B'],
 ];
+const METHODS = {
+  dcd:   { label: 'DCD', full: 'Density-aware Chamfer Distance', rule: '1 − DCD', value: 'DCD', params: ['alpha'],
+           desc: 'Nearest-neighbour distance plus a penalty for density mismatch. Bounded in [0,1]; strict (see α).' },
+  cd:    { label: 'CD', full: 'Chamfer Distance (L1)', rule: 'exp(−CD / s)', value: 'CD (L1)', params: ['scale'],
+           desc: 'Mean nearest-neighbour distance both ways. Ignores density. Mapped to [0,1] by the distance scale s.' },
+  emd:   { label: 'EMD', full: "Earth Mover's Distance", rule: 'exp(−EMD / s)', value: 'EMD', params: ['scale'],
+           desc: 'Mean length of the optimal one-to-one matching, on up to 2,048 sampled points per cloud. Slowest method.' },
+  voxel: { label: 'Voxel IoU', full: 'Voxel Intersection-over-Union', rule: '|A ∩ B| / |A ∪ B|', value: 'IoU', params: ['voxel'],
+           desc: 'Overlap of occupied cells of a shared voxel grid. Coarse, volumetric, tolerant of small noise.' },
+};
+const methodSel = document.getElementById('method');
+function syncMethod() {
+  const m = METHODS[methodSel.value];
+  document.getElementById('mdesc').textContent = m.desc;
+  form.querySelectorAll('[data-p]').forEach(l => l.hidden = !m.params.includes(l.dataset.p));
+}
+methodSel.addEventListener('change', syncMethod);
+syncMethod();
+const fmt = v => Number.isInteger(v) ? v.toLocaleString() : v.toFixed(6);
 let worker;
 function runWorker(msg, transfer) {
   return new Promise((resolve, reject) => {
@@ -239,12 +277,29 @@ form.addEventListener('submit', async e => {
     const fa = form.file_a.files[0], fb = form.file_b.files[0];
     if (!fa || !fb) throw new Error('Please choose two PCD files.');
     const [bufA, bufB] = await Promise.all([fa.arrayBuffer(), fb.arrayBuffer()]);
-    const alpha = parseFloat(form.alpha.value), tau = parseFloat(form.tau.value);
-    if (!(alpha > 0) || !(tau > 0)) throw new Error('alpha and tau must be positive numbers.');
-    const d = await runWorker({ bufA, bufB, alpha, tau, normalize: document.getElementById('norm').checked }, [bufA, bufB]);
+    const num = n => parseFloat(form[n].value);
+    const opts = { method: methodSel.value, alpha: num('alpha'), tau: num('tau'), scale: num('scale'), voxel: num('voxel') };
+    for (const k of ['alpha', 'tau', 'scale', 'voxel']) if (!(opts[k] > 0)) throw new Error(`${k} must be a positive number.`);
+    const d = await runWorker({ bufA, bufB, ...opts, normalize: document.getElementById('norm').checked }, [bufA, bufB]);
+    const m = METHODS[d.method];
     document.getElementById('sv').textContent = (d.similarity * 100).toFixed(2) + '%';
+    document.getElementById('scap').textContent = `similarity by ${m.full} = ${m.rule}; 100% = identical`;
+    document.getElementById('tbl-m').innerHTML =
+      '<tr><td><b>Method</b></td><td><b>Raw value</b></td><td><b>Similarity</b></td></tr>' +
+      Object.entries(METHODS).map(([k, mm]) => {
+        const sc = d.scores[k];
+        return `<tr class="${k === d.method ? 'sel' : ''}"><td>${mm.full}</td>` + (sc
+          ? `<td>${mm.value} = ${sc.value.toFixed(6)}</td><td>${(sc.similarity * 100).toFixed(2)}%</td>`
+          : '<td colspan="2"><span>select EMD and press Compare to compute</span></td>') + '</tr>';
+      }).join('');
+    const extra = [
+      ['Voxels in A / B', `${d.voxel.voxels_a.toLocaleString()} / ${d.voxel.voxels_b.toLocaleString()}`],
+      ['Voxels in both / either', `${d.voxel.intersection.toLocaleString()} / ${d.voxel.union.toLocaleString()}`],
+    ];
+    if (d.emd_points) extra.push(['EMD computed on', `${d.emd_points.toLocaleString()} points per cloud`]);
     document.getElementById('tbl').innerHTML = ROWS.map(([k,l,h]) =>
-      `<tr><td>${l}${h ? ` <span>${h}</span>` : ''}</td><td>${Number.isInteger(d[k]) ? d[k].toLocaleString() : d[k].toFixed(6)}</td></tr>`).join('')
+      `<tr><td>${l}${h ? ` <span>${h}</span>` : ''}</td><td>${fmt(d[k])}</td></tr>`).join('')
+      + extra.map(([l, v]) => `<tr><td>${l}</td><td>${v}</td></tr>`).join('')
       + (d.subsampled ? '<tr><td colspan="2"><span>Large clouds were randomly subsampled to 200k points.</span></td></tr>' : '');
     document.getElementById('result').hidden = false;
     document.getElementById('viewer').hidden = false;

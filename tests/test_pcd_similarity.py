@@ -60,3 +60,46 @@ def test_endpoint():
     r = c.post("/compare", data=data, content_type="multipart/form-data")
     assert r.status_code == 200 and 0 <= r.json["similarity"] <= 1
     assert c.post("/compare", data={}, content_type="multipart/form-data").status_code == 400
+
+
+def test_methods_identical_clouds():
+    p = sphere(500)
+    for method in ("dcd", "cd", "emd", "voxel"):
+        r = compute_metrics(p, p.copy(), method=method)
+        assert r["method"] == method and r["similarity"] > 0.99, method
+
+
+def test_methods_order_noise():
+    p = sphere(800)
+    near = p + np.random.default_rng(1).normal(scale=0.005, size=p.shape)
+    far = p + np.random.default_rng(1).normal(scale=0.1, size=p.shape)
+    for method in ("cd", "emd", "voxel"):
+        assert compute_metrics(p, near, method=method)["similarity"] > \
+            compute_metrics(p, far, method=method)["similarity"], method
+
+
+def test_emd_exact_on_known_matching():
+    # Two points each, shifted by 1 along x: optimal matching moves every point exactly 1.
+    from pcd_similarity.metrics import emd
+    a = np.array([[0.0, 0, 0], [5, 0, 0]])
+    assert abs(emd(a, a + [1.0, 0, 0]) - 1.0) < 1e-12
+
+
+def test_voxel_iou_known_value():
+    from pcd_similarity.metrics import voxel_iou
+    a = np.array([[0.5, 0.5, 0.5], [1.5, 0.5, 0.5]])
+    b = np.array([[1.5, 0.5, 0.5], [2.5, 0.5, 0.5]])
+    r = voxel_iou(a, b, 1.0)
+    assert (r["intersection"], r["union"]) == (1, 3) and abs(r["iou"] - 1 / 3) < 1e-12
+
+
+def test_endpoint_method_and_pages():
+    c = app.test_client()
+    assert c.get("/").status_code == 200 and c.get("/docs/").status_code == 200
+    data = {"file_a": (io.BytesIO(make_pcd(sphere(300))), "a.pcd"),
+            "file_b": (io.BytesIO(make_pcd(sphere(300, 1))), "b.pcd"), "method": "emd"}
+    r = c.post("/compare", data=data, content_type="multipart/form-data")
+    assert r.status_code == 200 and r.json["method"] == "emd" and "emd" in r.json["scores"]
+    data = {"file_a": (io.BytesIO(make_pcd(sphere(30))), "a.pcd"),
+            "file_b": (io.BytesIO(make_pcd(sphere(30))), "b.pcd"), "method": "nope"}
+    assert c.post("/compare", data=data, content_type="multipart/form-data").status_code == 400

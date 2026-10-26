@@ -1,6 +1,6 @@
 """Point cloud similarity metrics.
 
-Primary metric: Density-aware Chamfer Distance (DCD), Wu et al., NeurIPS 2021
+Methods: Density-aware Chamfer Distance (DCD), Wu et al., NeurIPS 2021
 (arXiv:2111.12702):
 
     DCD(S1, S2) = 1/2 * ( 1/|S1| * sum_{x in S1} [1 - 1/n_y * exp(-alpha * ||x - y||_2)]
@@ -11,10 +11,16 @@ points of the querying set that pick y as their nearest neighbour (this penalise
 density mismatch). DCD lies in [0, 1]; we report similarity = 1 - DCD.
 """
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 from scipy.spatial import cKDTree
+from scipy.spatial.distance import cdist
 
 DEFAULT_ALPHA = 1000.0  # paper default
 DEFAULT_TAU = 0.01  # F-score threshold, relative to the unit-scale cloud
+DEFAULT_SCALE = 0.05  # distance scale of the CD / EMD similarity: exp(-distance / scale)
+DEFAULT_VOXEL = 0.05  # voxel edge length for Voxel IoU
+DEFAULT_EMD_POINTS = 2048
+METHODS = ("dcd", "cd", "emd", "voxel")
 
 
 def normalize_pair(a: np.ndarray, b: np.ndarray):
@@ -35,8 +41,41 @@ def _directional(src, dst_tree, n_dst):
     return d, idx, counts[idx]
 
 
+def emd(a: np.ndarray, b: np.ndarray) -> float:
+    """Exact Earth Mover's Distance between equal-size clouds: mean length of the optimal matching."""
+    cost = cdist(a, b)
+    rows, cols = linear_sum_assignment(cost)
+    return float(cost[rows, cols].mean())
+
+
+def voxel_iou(a: np.ndarray, b: np.ndarray, size: float) -> dict:
+    """Occupied cells of a shared grid; IoU = |A ∩ B| / |A ∪ B|."""
+    ca, cb = np.floor(a / size).astype(np.int64), np.floor(b / size).astype(np.int64)
+    mn = np.minimum(ca.min(axis=0), cb.min(axis=0))
+    dims = np.maximum(ca.max(axis=0), cb.max(axis=0)) - mn + 1
+    if int(dims[0]) * int(dims[1]) * int(dims[2]) > 2 ** 52:
+        raise ValueError("Voxel size is too small for these coordinates.")
+
+    def keys(c):
+        c = c - mn
+        return np.unique(c[:, 0] + dims[0] * (c[:, 1] + dims[1] * c[:, 2]))
+
+    ka, kb = keys(ca), keys(cb)
+    inter = len(np.intersect1d(ka, kb, assume_unique=True))
+    union = len(ka) + len(kb) - inter
+    return {"iou": inter / union, "voxels_a": len(ka), "voxels_b": len(kb),
+            "intersection": inter, "union": union}
+
+
+def _subsample(p, n, rng):
+    return p if len(p) <= n else p[rng.choice(len(p), n, replace=False)]
+
+
 def compute_metrics(a: np.ndarray, b: np.ndarray, alpha=DEFAULT_ALPHA, tau=DEFAULT_TAU,
-                    normalize=True, max_points=200_000, seed=0):
+                    normalize=True, max_points=200_000, seed=0, method="dcd",
+                    scale=DEFAULT_SCALE, voxel=DEFAULT_VOXEL, emd_points=DEFAULT_EMD_POINTS):
+    if method not in METHODS:
+        raise ValueError(f"Unknown method '{method}'.")
     sampled = False
     rng = np.random.default_rng(seed)
     if len(a) > max_points:
@@ -60,17 +99,35 @@ def compute_metrics(a: np.ndarray, b: np.ndarray, alpha=DEFAULT_ALPHA, tau=DEFAU
     precision, recall = (d_ba < tau).mean(), (d_ab < tau).mean()
     fscore = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
 
+    vox = voxel_iou(a, b, voxel)
+    scores = {
+        "dcd": {"value": float(dcd), "similarity": float(1 - dcd)},
+        "cd": {"value": float(cd_l1), "similarity": float(np.exp(-cd_l1 / scale))},
+        "voxel": {"value": vox["iou"], "similarity": vox["iou"]},
+    }
+    n_emd = 0
+    if method == "emd":  # the only expensive method; computed on request, on equal-size subsamples
+        n_emd = min(len(a), len(b), emd_points)
+        e = emd(_subsample(a, n_emd, rng), _subsample(b, n_emd, rng))
+        scores["emd"] = {"value": e, "similarity": float(np.exp(-e / scale))}
+
     return {
-        "similarity": float(1 - dcd),
+        "method": method,
+        "similarity": scores[method]["similarity"],
+        "scores": scores,
         "dcd": float(dcd),
         "chamfer_l1": float(cd_l1),
         "chamfer_l2": float(cd_l2),
         "hausdorff": float(hausdorff),
         "fscore": float(fscore),
+        "voxel": vox,
+        "emd_points": int(n_emd),
         "points_a": int(len(a)),
         "points_b": int(len(b)),
         "alpha": alpha,
         "tau": tau,
+        "scale": scale,
+        "voxel_size": voxel,
         "normalized": normalize,
         "subsampled": sampled,
     }

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PCD Similarity – Documentation</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#667085; --accent:#2563eb; --border:#e2e5ea; --code:#eef1f5; }
   @media (prefers-color-scheme: dark) {
@@ -13,177 +14,61 @@
   html { scroll-behavior:smooth; scroll-padding-top:16px; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 system-ui,sans-serif; }
   a { color:var(--accent); }
-  .wrap { max-width:1040px; margin:0 auto; padding:24px 16px 64px; display:grid; grid-template-columns:200px minmax(0,1fr); gap:32px; }
-  @media (max-width:820px) { .wrap { grid-template-columns:1fr; } nav.toc { position:static !important; } }
-  nav.toc { position:sticky; top:24px; align-self:start; font-size:14px; }
-  nav.toc a { display:block; padding:4px 0; color:var(--muted); text-decoration:none; }
+  .wrap { max-width:1080px; margin:0 auto; padding:24px 16px 64px; display:grid; grid-template-columns:210px minmax(0,1fr); gap:32px; }
+  @media (max-width:860px) { .wrap { grid-template-columns:1fr; } nav.toc { position:static !important; } }
+  nav.toc { position:sticky; top:24px; align-self:start; font-size:14px; max-height:calc(100vh - 48px); overflow:auto; }
+  nav.toc a { display:block; padding:3px 0; color:var(--muted); text-decoration:none; }
   nav.toc a:hover { color:var(--accent); }
   nav.toc .home { color:var(--accent); font-weight:600; margin-bottom:8px; }
   main { min-width:0; }
-  h1 { font-size:30px; margin:0 0 4px; }
-  h2 { font-size:22px; margin:40px 0 8px; padding-top:8px; border-top:1px solid var(--border); }
-  h3 { font-size:17px; margin:24px 0 4px; }
-  p.lead { color:var(--muted); margin:0 0 16px; font-size:17px; }
+  main h1 { font-size:30px; margin:0 0 8px; }
+  main h1 + p { color:var(--muted); font-size:17px; margin-top:0; }
+  main h2 { font-size:22px; margin:40px 0 8px; padding-top:12px; border-top:1px solid var(--border); }
+  main h3 { font-size:17px; margin:24px 0 4px; }
   code { background:var(--code); padding:1px 5px; border-radius:4px; font-size:.9em; }
-  .formula { background:var(--code); border-radius:8px; padding:12px 16px; margin:12px 0; overflow-x:auto; font:14px/1.7 ui-monospace,Menlo,monospace; white-space:pre; }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:4px 18px 14px; margin:14px 0; }
-  .note { border-left:3px solid var(--accent); background:var(--card); padding:8px 14px; margin:14px 0; border-radius:0 8px 8px 0; }
-  table { border-collapse:collapse; width:100%; font-size:14.5px; margin:12px 0; display:block; overflow-x:auto; }
+  blockquote { border-left:3px solid var(--accent); background:var(--card); margin:14px 0; padding:2px 16px; border-radius:0 8px 8px 0; }
+  table { border-collapse:collapse; display:block; overflow-x:auto; margin:12px 0; font-size:14.5px; }
   th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
   th { color:var(--muted); font-weight:600; white-space:nowrap; }
-  ol, ul { padding-left:22px; }
-  li { margin:4px 0; }
+  .katex-display { overflow-x:auto; overflow-y:hidden; padding:4px 0; }
+  ol, ul { padding-left:22px; } li { margin:4px 0; }
+  #fallback pre { white-space:pre-wrap; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <nav class="toc" aria-label="Contents">
-    <a class="home" href="../">← Open the tool</a>
-    <a href="#overview">Overview</a>
-    <a href="#pipeline">How it works</a>
-    <a href="#dcd">Primary metric: DCD</a>
-    <a href="#similarity">The similarity score</a>
-    <a href="#others">Supporting metrics</a>
-    <a href="#example">Worked example</a>
-    <a href="#interpret">Reading the results</a>
-    <a href="#limits">Limitations</a>
-    <a href="#impl">Implementation</a>
-    <a href="#reference">Reference</a>
-  </nav>
-
-  <main>
-    <h1>PCD Similarity – Documentation</h1>
-    <p class="lead">What the project does, which metrics it uses, what they mean, and how the similarity score is computed.</p>
-
-    <h2 id="overview">1. Overview</h2>
-    <p>PCD Similarity compares two 3D point clouds stored as <code>.pcd</code> files (the Point Cloud Library format) and reports how
-      similar they are. You upload file <b>A</b> (the reference) and file <b>B</b>; the tool returns a single headline
-      similarity percentage, several supporting distance metrics, and an interactive 3D view with both clouds overlaid.</p>
-    <p>The headline score is based on the <b>Density-aware Chamfer Distance (DCD)</b> proposed in
-      <a href="https://arxiv.org/abs/2111.12702">Wu et al., NeurIPS 2021 (arXiv:2111.12702)</a>, a metric designed to compare point sets
-      more faithfully than the classic Chamfer Distance.</p>
-    <p>Everything runs in your browser. The files are read locally and are never uploaded to a server.</p>
-
-    <h3>What has been built</h3>
-    <ul>
-      <li>A PCD reader supporting <code>ascii</code>, <code>binary</code> and <code>binary_compressed</code> (LZF) data, which extracts the <code>x y z</code> coordinates.</li>
-      <li>Five metrics: Density-aware Chamfer Distance (primary), Chamfer Distance (L1 and L2), Hausdorff Distance, and F-score.</li>
-      <li>A kd-tree nearest-neighbour search so that clouds of up to 200,000 points compare in about a second.</li>
-      <li>An interactive 3D viewer (rotate, pan, zoom, preset views, auto-rotate, fullscreen, mouse, touch and keyboard controls).</li>
-      <li>Two interchangeable implementations that give the same numbers: this static JavaScript site, and a Python/Flask app.</li>
-    </ul>
-
-    <h2 id="pipeline">2. How it works</h2>
-    <ol>
-      <li><b>Parse.</b> Each file's header is read (<code>FIELDS</code>, <code>SIZE</code>, <code>TYPE</code>, <code>POINTS</code>, <code>DATA</code>) and the
-        <code>x</code>, <code>y</code>, <code>z</code> values are extracted. Points with non-finite coordinates (NaN padding) are dropped. Other fields such as colour or intensity are ignored.</li>
-      <li><b>Subsample.</b> A cloud with more than 200,000 points is randomly reduced to 200,000 (fixed seed, so repeated runs agree).</li>
-      <li><b>Normalise</b> (optional, on by default). Both clouds are translated so the centroid of A is the origin, then divided by the largest distance from that centroid to any point of A.
-        A therefore fits inside a unit sphere and its frame is shared with B. Because the same transform is applied to both, a real difference in size or position between A and B is still penalised.</li>
-      <li><b>Nearest neighbours.</b> For every point of A the closest point of B is found, and vice versa, using a kd-tree. This yields two lists of distances and, for each matched point, how many points chose it.</li>
-      <li><b>Metrics.</b> All five metrics are computed from those distances and counts.</li>
-      <li><b>Display.</b> Up to 20,000 points per cloud are shown in the viewer, in the same normalised frame as the metrics.</li>
-    </ol>
-
-    <h2 id="dcd">3. The primary metric: Density-aware Chamfer Distance</h2>
-    <h3>Background: Chamfer Distance and its weakness</h3>
-    <p>The Chamfer Distance (CD) measures how far each point of one cloud is from its nearest neighbour in the other, in both directions.
-      It is cheap and widely used, but it only looks at <i>nearest-neighbour distance</i>. Two clouds can therefore score a perfect CD
-      while having very different point densities: if a thousand points of A all sit on one point of B, CD does not notice, because every distance is still tiny.
-      Its values are also unbounded, so a few outliers can dominate.</p>
-
-    <h3>Definition</h3>
-    <p>Let <code>S₁</code> and <code>S₂</code> be the two point sets. For a point <code>x</code> in one set, let <code>ŷ</code> be its nearest neighbour in the other set. Then:</p>
-    <div class="formula">DCD(S₁, S₂) = ½ · ( 1/|S₁| · Σₓ∈S₁ [ 1 − (1 / n_ŷ) · exp(−α · ‖x − ŷ‖₂) ]
-                   + 1/|S₂| · Σ_y∈S₂ [ 1 − (1 / n_x̂) · exp(−α · ‖y − x̂‖₂) ] )</div>
-    <ul>
-      <li><code>‖x − ŷ‖₂</code> is the Euclidean distance to the nearest neighbour.</li>
-      <li><code>exp(−α·d)</code> turns that distance into a closeness value between 0 and 1: it is 1 when the points coincide and decays towards 0 as they separate. <code>α</code> sets how quickly (default <b>1000</b>, the paper's value).</li>
-      <li><code>n_ŷ</code> is the <b>density term</b>: the number of points of the querying set whose nearest neighbour is that same <code>ŷ</code>. If many points pile onto one target, each one's contribution is divided by that count, so the clump is penalised. For a one-to-one matching <code>n = 1</code> and the term has no effect.</li>
-    </ul>
-
-    <h3>Why it is useful</h3>
-    <ul>
-      <li><b>Density-aware:</b> mismatched local density lowers the score even when the shapes line up, which plain CD cannot detect.</li>
-      <li><b>Bounded:</b> every term lies between 0 and 1, so DCD is always in [0, 1] and is not dominated by outliers.</li>
-      <li><b>Cheap:</b> it needs only nearest-neighbour queries, unlike the Earth Mover's Distance, which requires an optimal matching.</li>
-    </ul>
-
-    <h2 id="similarity">4. How the similarity score is measured</h2>
-    <p>The headline number is simply:</p>
-    <div class="formula">similarity = 1 − DCD(A, B)        (shown as a percentage)</div>
-    <p>So <b>100%</b> means the clouds coincide point for point, and <b>0%</b> means no point has a close neighbour. Lower DCD and higher similarity are both better.</p>
-
-    <div class="note"><b>The score is deliberately strict.</b> With the default <code>α = 1000</code>, a nearest neighbour at distance <code>0.001</code> (in normalised units) contributes
-      <code>e⁻¹ ≈ 0.37</code>, and at <code>0.01</code> it contributes only <code>≈ 0.00005</code>. Two scans of the <i>same</i> object that sample different points, or that differ by sensor noise
-      larger than about 0.1% of the object's size, will score close to 0%. The paper uses this setting to compare reconstructions of dense clouds against ground truth.
-      For noisier real-world data, lower <code>α</code> (for example 10–100) in the options to get a more graded score. Compare scores only between runs that use the same <code>α</code>.</div>
-
-    <h2 id="others">5. Supporting metrics</h2>
-    <p>Shown alongside the headline score for context. In all of them <code>d(x→B)</code> is the distance from a point <code>x</code> of A to its nearest point in B, and <code>d(y→A)</code> likewise for a point of B.</p>
-    <table>
-      <tr><th>Metric</th><th>Definition used here</th><th>Meaning</th><th>Better</th></tr>
-      <tr><td><b>Chamfer Distance (L1)</b></td>
-        <td><code>½ · ( mean d(x→B) + mean d(y→A) )</code></td>
-        <td>Average distance from a point to the other cloud's surface, both ways. Easy to read in the same units as the normalised coordinates.</td><td>Lower</td></tr>
-      <tr><td><b>Chamfer Distance (L2)</b></td>
-        <td><code>½ · ( mean d² + mean d² )</code></td>
-        <td>Same, with squared distances, so large gaps are punished more.</td><td>Lower</td></tr>
-      <tr><td><b>Hausdorff Distance</b></td>
-        <td><code>max( max d(x→B), max d(y→A) )</code></td>
-        <td>The single worst-case gap: how far the most isolated point is from the other cloud. Very sensitive to outliers.</td><td>Lower</td></tr>
-      <tr><td><b>F-score</b></td>
-        <td><code>2·P·R / (P + R)</code> where <code>P</code> = share of B's points within τ of A, and <code>R</code> = share of A's points within τ of B</td>
-        <td>How much of each cloud is covered by the other at a tolerance <code>τ</code> (default 0.01 in normalised units). Between 0 and 1.</td><td>Higher</td></tr>
-    </table>
-    <p>The Chamfer values here average the two directions. Some papers sum them instead, so they differ from such figures by a factor of two.</p>
-
-    <h2 id="example">6. Worked example</h2>
-    <p>Two synthetic checks, computed with <code>α = 100</code> and <code>τ = 0.05</code> (a softer setting than the default):</p>
-    <table>
-      <tr><th>Comparison</th><th>Similarity</th><th>Chamfer L1</th><th>Hausdorff</th><th>F-score</th></tr>
-      <tr><td>Sphere of 6,000 points vs. its first 5,000 points with a little noise (σ = 0.002) and 300 extra copies of one point</td><td>62.83%</td><td>0.0049</td><td>0.0720</td><td>0.996</td></tr>
-      <tr><td>Sphere of 6,000 points vs. a different random sphere, 5% larger and shifted slightly</td><td>0.84%</td><td>0.0573</td><td>0.1079</td><td>0.370</td></tr>
-    </table>
-    <p>The first pair is geometrically almost identical (F-score near 1, tiny Chamfer), yet its similarity is only about 63%. That loss comes from the density term: the 300 duplicated points all
-      share one nearest neighbour, which DCD penalises and plain Chamfer Distance would ignore. The second pair is a genuine mismatch in size and position, and the score collapses.</p>
-
-    <h2 id="interpret">7. Reading the results</h2>
-    <table>
-      <tr><th>You see</th><th>It suggests</th></tr>
-      <tr><td>High similarity, low Chamfer, high F-score</td><td>The clouds match closely in both shape and density.</td></tr>
-      <tr><td>Low similarity but low Chamfer and high F-score</td><td>The shapes agree but density or point multiplicity differs, or <code>α</code> is too strict for the amount of noise.</td></tr>
-      <tr><td>Low Chamfer but large Hausdorff</td><td>Mostly aligned, with a few outlier points or a missing region.</td></tr>
-      <tr><td>High Chamfer and low F-score</td><td>The clouds differ in shape, scale or position (or are not aligned).</td></tr>
-    </table>
-
-    <h2 id="limits">8. Limitations and notes</h2>
-    <ul>
-      <li><b>No alignment.</b> The tool does not register the clouds. If B is rotated or shifted relative to A, the score drops. Align them first (for example with ICP) if pose should not matter.</li>
-      <li><b>A is the reference.</b> Normalisation uses cloud A's centroid and extent, so swapping A and B can change the numbers slightly. Turning normalisation off compares the raw coordinates, in which case <code>α</code> and <code>τ</code> are in the files' own units.</li>
-      <li><b>Geometry only.</b> Colour, intensity and normals are ignored.</li>
-      <li><b>Subsampling.</b> Clouds above 200,000 points are randomly subsampled, so results for such files are estimates and the viewer shows at most 20,000 points.</li>
-      <li><b>Scale of <code>α</code>.</b> The score depends strongly on <code>α</code> and on the units; it is a relative measure for comparing runs with the same settings, not an absolute percentage of "sameness".</li>
-      <li><b>Testing.</b> The code was checked on synthetic clouds, including agreement between the JavaScript and Python implementations. It has not been benchmarked on real scanner data, and the compressed (LZF) format was verified only on a small hand-made case.</li>
-      <li>The DCD was implemented from the definition in the paper rather than from the authors' code, so tiny numerical differences from other implementations are possible.</li>
-    </ul>
-
-    <h2 id="impl">9. Implementation</h2>
-    <table>
-      <tr><th>File</th><th>Role</th></tr>
-      <tr><td><code>docs/pcd.js</code></td><td>PCD parser (ascii, binary, LZF-compressed).</td></tr>
-      <tr><td><code>docs/metrics.js</code></td><td>kd-tree, normalisation, subsampling and all five metrics.</td></tr>
-      <tr><td><code>docs/worker.js</code></td><td>Runs parsing and metrics in a Web Worker so the page stays responsive.</td></tr>
-      <tr><td><code>docs/index.html</code></td><td>The tool page and the 3D viewer.</td></tr>
-      <tr><td><code>pcd_similarity/</code>, <code>app.py</code></td><td>The equivalent Python implementation and Flask server (also deployable with the included Dockerfile or <code>render.yaml</code>).</td></tr>
-    </table>
-    <p>The Python and JavaScript versions produce matching results (agreement to about 1e-15 on the test clouds).</p>
-
-    <h2 id="reference">10. Reference</h2>
-    <p>Wu et al., <i>Density-aware Chamfer Distance as a Comprehensive Metric for Point Cloud Completion</i>, NeurIPS 2021.
-      <a href="https://arxiv.org/abs/2111.12702">arXiv:2111.12702</a>.</p>
-    <p><a href="../">← Back to the tool</a></p>
-  </main>
+  <nav class="toc" id="toc" aria-label="Contents"><a class="home" href="../">← Open the tool</a></nav>
+  <main id="content">Loading documentation…</main>
 </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script>
+// Render documentation.md: math is pulled out before Markdown parsing (so `_`, `\`, `|` inside
+// formulas are left alone), then typeset with KaTeX and put back.
+(async () => {
+  const el = document.getElementById('content');
+  try {
+    const md = await fetch('documentation.md').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
+    const math = [];
+    const stash = (tex, display) => { math.push([tex, display]); return `@@M${math.length - 1}@@`; };
+    const src = md
+      .replace(/\$\$([\s\S]+?)\$\$/g, (_, t) => '\n\n' + stash(t, true) + '\n\n')
+      .replace(/\$([^$\n]+?)\$/g, (_, t) => stash(t, false));
+    let html = marked.parse(src);
+    html = html.replace(/@@M(\d+)@@/g, (_, i) => {
+      const [tex, display] = math[+i];
+      return katex.renderToString(tex.trim(), { displayMode: display, throwOnError: false });
+    });
+    el.innerHTML = html;
+    const toc = document.getElementById('toc');
+    el.querySelectorAll('h2').forEach(h => {
+      const a = document.createElement('a'); a.href = '#' + h.id; a.textContent = h.textContent; toc.appendChild(a);
+    });
+    if (location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
+  } catch (e) {
+    el.innerHTML = '<p>Could not render the documentation (' + e.message + '). The raw Markdown is available at <a href="documentation.md">documentation.md</a>.</p>';
+  }
+})();
+</script>
 </body>
 </html>

@@ -96,8 +96,70 @@
     return { d, idx, counts };
   }
 
+  const DEFAULT_SCALE = 0.05, DEFAULT_VOXEL = 0.05, DEFAULT_EMD_POINTS = 2048;
+
+  // Exact optimal assignment (Hungarian / shortest augmenting path, O(n^3)) on an n x n cost matrix.
+  // Returns the total cost of the optimal one-to-one matching.
+  function assignmentCost(cost, n) {
+    const u = new Float64Array(n + 1), v = new Float64Array(n + 1), p = new Int32Array(n + 1), way = new Int32Array(n + 1);
+    const minv = new Float64Array(n + 1), used = new Uint8Array(n + 1);
+    for (let i = 1; i <= n; i++) {
+      p[0] = i; let j0 = 0; minv.fill(Infinity); used.fill(0);
+      do {
+        used[j0] = 1; const i0 = p[j0]; let delta = Infinity, j1 = 0;
+        const row = (i0 - 1) * n - 1;
+        for (let j = 1; j <= n; j++) if (!used[j]) {
+          const cur = cost[row + j] - u[i0] - v[j];
+          if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+          if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+        }
+        for (let j = 0; j <= n; j++) { if (used[j]) { u[p[j]] += delta; v[j] -= delta; } else minv[j] -= delta; }
+        j0 = j1;
+      } while (p[j0] !== 0);
+      do { const j1 = way[j0]; p[j0] = p[j1]; j0 = j1; } while (j0);
+    }
+    let total = 0;
+    for (let j = 1; j <= n; j++) { const i = p[j] - 1, k = j - 1; total += cost[i * n + k]; }
+    return total;
+  }
+
+  // Earth Mover's Distance between two equal-size clouds: mean Euclidean length of the optimal matching.
+  function emd(a, b) {
+    const n = a.length / 3, cost = new Float64Array(n * n);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++)
+      cost[i * n + j] = Math.hypot(a[i * 3] - b[j * 3], a[i * 3 + 1] - b[j * 3 + 1], a[i * 3 + 2] - b[j * 3 + 2]);
+    return assignmentCost(cost, n) / n;
+  }
+
+  // Voxel IoU: occupied cells of a shared grid, |A ∩ B| / |A ∪ B|.
+  function voxelIoU(a, b, size) {
+    const lim = 1 << 30, cells = p => {
+      const o = new Int32Array(p.length);
+      for (let i = 0; i < p.length; i++) {
+        const c = Math.floor(p[i] / size);
+        if (!(Math.abs(c) < lim)) throw new Error('Voxel size is too small for these coordinates.');
+        o[i] = c;
+      }
+      return o;
+    };
+    const ca = cells(a), cb = cells(b), mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    for (const c of [ca, cb]) for (let i = 0; i < c.length; i++) { const k = i % 3; if (c[i] < mn[k]) mn[k] = c[i]; if (c[i] > mx[k]) mx[k] = c[i]; }
+    const dx = mx[0] - mn[0] + 1, dy = mx[1] - mn[1] + 1, dz = mx[2] - mn[2] + 1;
+    if (dx * dy * dz > 2 ** 52) throw new Error('Voxel size is too small for these coordinates.');
+    const keys = c => { const s = new Set(); for (let i = 0; i < c.length; i += 3) s.add((c[i] - mn[0]) + dx * ((c[i + 1] - mn[1]) + dy * (c[i + 2] - mn[2]))); return s; };
+    const sa = keys(ca), sb = keys(cb); let inter = 0;
+    const [small, big] = sa.size <= sb.size ? [sa, sb] : [sb, sa];
+    for (const k of small) if (big.has(k)) inter++;
+    const union = sa.size + sb.size - inter;
+    return { iou: inter / union, voxels_a: sa.size, voxels_b: sb.size, intersection: inter, union };
+  }
+
+  const METHODS = ['dcd', 'cd', 'emd', 'voxel'];
+
   function computeMetrics(a, b, opts = {}) {
     const alpha = opts.alpha ?? DEFAULT_ALPHA, tau = opts.tau ?? DEFAULT_TAU, normalize = opts.normalize ?? true;
+    const method = opts.method ?? 'dcd', scale = opts.scale ?? DEFAULT_SCALE, voxel = opts.voxel ?? DEFAULT_VOXEL;
+    if (!METHODS.includes(method)) throw new Error(`Unknown method '${method}'.`);
     const sa = subsample(a, MAX_POINTS, 0), sb = subsample(b, MAX_POINTS, 0);
     a = sa.pts; b = sb.pts;
     if (normalize) [a, b] = normalizePair(a, b);
@@ -113,13 +175,27 @@
       const d = ba.d[i]; dcdB += 1 - Math.exp(-alpha * d) / ba.counts[ba.idx[i]];
       l1b += d; l2b += d * d; if (d > hd) hd = d; if (d < tau) precision++;
     }
-    const dcd = 0.5 * (dcdA / na + dcdB / nb);
+    const dcd = 0.5 * (dcdA / na + dcdB / nb), cdL1 = 0.5 * (l1a / na + l1b / nb);
     recall /= na; precision /= nb;
+
+    const vox = voxelIoU(a, b, voxel);
+    const scores = {
+      dcd: { value: dcd, similarity: 1 - dcd },
+      cd: { value: cdL1, similarity: Math.exp(-cdL1 / scale) },
+      voxel: { value: vox.iou, similarity: vox.iou },
+    };
+    let emdPoints = 0;
+    if (method === 'emd') { // the only expensive method, so computed on request, on an equal-size subsample
+      emdPoints = Math.min(na, nb, opts.emdPoints ?? DEFAULT_EMD_POINTS);
+      const e = emd(subsample(a, emdPoints, 1).pts, subsample(b, emdPoints, 2).pts);
+      scores.emd = { value: e, similarity: Math.exp(-e / scale) };
+    }
     return {
-      similarity: 1 - dcd, dcd,
-      chamfer_l1: 0.5 * (l1a / na + l1b / nb), chamfer_l2: 0.5 * (l2a / na + l2b / nb),
+      method, similarity: scores[method].similarity, scores,
+      dcd, chamfer_l1: cdL1, chamfer_l2: 0.5 * (l2a / na + l2b / nb),
       hausdorff: hd, fscore: precision + recall === 0 ? 0 : 2 * precision * recall / (precision + recall),
-      points_a: na, points_b: nb, alpha, tau, normalized: normalize, subsampled: sa.sampled || sb.sampled,
+      voxel: vox, emd_points: emdPoints,
+      points_a: na, points_b: nb, alpha, tau, scale, voxel_size: voxel, normalized: normalize, subsampled: sa.sampled || sb.sampled,
       _a: a, _b: b, // normalised clouds, reused for the 3-D preview
     };
   }
@@ -131,6 +207,7 @@
     return { a: f(na), b: f(nb) };
   }
 
-  const api = { KDTree, computeMetrics, normalizePair, preview, DEFAULT_ALPHA, DEFAULT_TAU };
+  const api = { KDTree, computeMetrics, normalizePair, preview, emd, voxelIoU, assignmentCost, METHODS,
+    DEFAULT_ALPHA, DEFAULT_TAU, DEFAULT_SCALE, DEFAULT_VOXEL, DEFAULT_EMD_POINTS };
   if (typeof module !== 'undefined') module.exports = api; else root.Metrics = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -1,18 +1,33 @@
 # pcd-similarity
 
-Upload two `.pcd` files in the browser and get a similarity score.
+Upload two `.pcd` files in the browser and get a similarity score. Pick the method:
 
-The score is based on the **Density-aware Chamfer Distance (DCD)** from
-[Wu et al., NeurIPS 2021 (arXiv:2111.12702)](https://arxiv.org/abs/2111.12702).
-DCD is bounded in [0, 1] and, unlike plain Chamfer Distance, penalises density
-mismatch. The headline figure is `similarity = 1 − DCD`. Chamfer (L1/L2),
-Hausdorff and F-score are shown alongside for reference.
+| Method | Similarity score |
+|---|---|
+| **DCD** – Density-aware Chamfer Distance ([Wu et al., NeurIPS 2021](https://arxiv.org/abs/2111.12702)) | `1 − DCD` |
+| **CD** – Chamfer Distance only | `exp(−CD / s)` |
+| **EMD** – Earth Mover's Distance only (exact, on ≤ 2,048 sampled points) | `exp(−EMD / s)` |
+| **Voxel IoU** | `|A ∩ B| / |A ∪ B|` |
 
-After comparing, a 3D viewer overlays both clouds (A blue, B orange). Mouse: drag rotates, right/shift-drag pans, scroll zooms. Keyboard (while hovering the viewer): arrows rotate, WASD pan, Q/E or -/+ zoom, Shift = faster, 1-4 preset views, Space auto-rotate, 0/R reset, Z/X toggle A/B, F fullscreen.
+Chamfer L1/L2, Hausdorff and F-score are shown alongside, and a 3D viewer overlays both
+clouds (A blue, B orange). Full logic and formulas: [`docs/docs/documentation.md`](docs/docs/documentation.md)
+(rendered with KaTeX at `/docs/` on the site).
 
 Supported PCD formats: `ascii`, `binary`, `binary_compressed` (needs `x y z` fields).
 
+## Layout
+
+- `docs/` – the static site (GitHub Pages). Parser and metrics in plain JavaScript (`pcd.js`,
+  `metrics.js`, run in a Web Worker); everything runs in the visitor's browser, nothing is uploaded.
+- `pcd_similarity/`, `app.py` – equivalent Python reference implementation (NumPy/SciPy) and a
+  Flask server that hosts `docs/` and exposes `POST /compare` (form fields `file_a`, `file_b`, `method`,
+  `alpha`, `scale`, `voxel`, `tau`, `normalize`). JS and Python agree to ~1e-15 on all four methods.
+
 ## Run
+
+Static site only: `cd docs && python3 -m http.server 8099` → http://localhost:8099
+
+Flask (site + API):
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -26,25 +41,15 @@ python app.py        # http://localhost:5001
 pip install pytest && pytest
 ```
 
+## Deploy
+
+- **GitHub Pages:** Settings → Pages → Deploy from a branch → `main` / `/docs`.
+- **Flask:** `render.yaml` (Render) or the `Dockerfile`. Uploads are capped by `MAX_UPLOAD_MB`.
+  Production-style run: `gunicorn app:app --workers 1 --threads 2 --timeout 120`.
+
 ## Notes
 
-- Clouds are centred and scaled by cloud A's bounding-sphere radius (toggleable), so
-  A is the reference frame; size or position differences between A and B are penalised.
-- `α` (default 1000, as in the paper) controls how fast the score drops with distance;
-  the F-score threshold `τ` is in normalised units.
+- With normalisation on (default), both clouds are centred on A and scaled by A's radius, so A is
+  the reference frame and `α`, `s`, `v`, `τ` are in units of A's radius.
+- `α` (default 1000, as in the paper) makes DCD strict; lower it for noisy real data.
 - Clouds over 200k points are randomly subsampled (fixed seed).
-
-## Static site (GitHub Pages)
-
-`docs/` is a dependency-free port of the same parser and metrics to JavaScript
-(`pcd.js`, `metrics.js`, run in a Web Worker). Everything runs in the visitor's browser, so
-nothing is uploaded and no server is needed. Its results match the Python version to ~1e-15.
-
-To publish: repo **Settings → Pages → Build and deployment → Deploy from a branch →
-`main` / `/docs`**. The site appears at `https://<user>.github.io/pcd-similarity/`.
-To preview locally: `cd docs && python3 -m http.server 8099`.
-
-## Deploy the Flask version (Render / Docker)
-
-`render.yaml` and the `Dockerfile` deploy the Python app instead. Uploads are capped by
-`MAX_UPLOAD_MB`. Local production-style run: `gunicorn app:app --workers 1 --threads 2 --timeout 120`.
