@@ -34,10 +34,17 @@ pip install pytest && pytest
   the F-score threshold `τ` is in normalised units.
 - Clouds over 200k points are randomly subsampled (fixed seed).
 
-## Deploy (Render)
+## Static site (GitHub Pages)
 
-1. Push this folder to a GitHub repo.
-2. On Render: **New → Blueprint**, pick the repo; `render.yaml` configures everything.
-3. Uploads are capped by `MAX_UPLOAD_MB` (100 on the free tier's 512 MB RAM).
+`docs/` is a dependency-free port of the same parser and metrics to JavaScript
+(`pcd.js`, `metrics.js`, run in a Web Worker). Everything runs in the visitor's browser, so
+nothing is uploaded and no server is needed. Its results match the Python version to ~1e-15.
 
-Local production-style run: `gunicorn app:app --workers 1 --threads 2 --timeout 120`.
+To publish: repo **Settings → Pages → Build and deployment → Deploy from a branch →
+`main` / `/docs`**. The site appears at `https://<user>.github.io/pcd-similarity/`.
+To preview locally: `cd docs && python3 -m http.server 8099`.
+
+## Deploy the Flask version (Render / Docker)
+
+`render.yaml` and the `Dockerfile` deploy the Python app instead. Uploads are capped by
+`MAX_UPLOAD_MB`. Local production-style run: `gunicorn app:app --workers 1 --threads 2 --timeout 120`.
