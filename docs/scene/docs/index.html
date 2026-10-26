@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCD Scene Similarity – Documentation</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#667085; --accent:#2563eb; --border:#e2e5ea; --code:#eef1f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --card:#1d2025; --fg:#e8eaed; --muted:#98a2b3; --accent:#6b9bff; --border:#2c3138; --code:#262a31; }
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; scroll-padding-top:16px; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 system-ui,sans-serif; }
+  a { color:var(--accent); }
+  .wrap { max-width:1080px; margin:0 auto; padding:24px 16px 64px; display:grid; grid-template-columns:210px minmax(0,1fr); gap:32px; }
+  @media (max-width:860px) { .wrap { grid-template-columns:1fr; } nav.toc { position:static !important; } }
+  nav.toc { position:sticky; top:24px; align-self:start; font-size:14px; max-height:calc(100vh - 48px); overflow:auto; }
+  nav.toc a { display:block; padding:3px 0; color:var(--muted); text-decoration:none; }
+  nav.toc a:hover { color:var(--accent); }
+  nav.toc .home { color:var(--accent); font-weight:600; margin-bottom:8px; }
+  main { min-width:0; }
+  main h1 { font-size:30px; margin:0 0 8px; }
+  main h1 + p { color:var(--muted); font-size:17px; margin-top:0; }
+  main h2 { font-size:22px; margin:40px 0 8px; padding-top:12px; border-top:1px solid var(--border); }
+  main h3 { font-size:17px; margin:24px 0 4px; }
+  code { background:var(--code); padding:1px 5px; border-radius:4px; font-size:.9em; }
+  blockquote { border-left:3px solid var(--accent); background:var(--card); margin:14px 0; padding:2px 16px; border-radius:0 8px 8px 0; }
+  table { border-collapse:collapse; display:block; overflow-x:auto; margin:12px 0; font-size:14.5px; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; white-space:nowrap; }
+  .katex-display { overflow-x:auto; overflow-y:hidden; padding:4px 0; }
+  ol, ul { padding-left:22px; } li { margin:4px 0; }
+  #fallback pre { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="toc" id="toc" aria-label="Contents"><a class="home" href="../">← Open the scene tool</a><a class="home" href="../../docs/" style="font-weight:400">Main tool documentation</a></nav>
+  <main id="content">Loading documentation…</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script>
+// Render documentation.md: math is pulled out before Markdown parsing (so `_`, `\`, `|` inside
+// formulas are left alone), then typeset with KaTeX and put back.
+(async () => {
+  const el = document.getElementById('content');
+  try {
+    const md = await fetch('documentation.md').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
+    const math = [];
+    const stash = (tex, display) => { math.push([tex, display]); return `@@M${math.length - 1}@@`; };
+    const src = md
+      .replace(/\$\$([\s\S]+?)\$\$/g, (_, t) => '\n\n' + stash(t, true) + '\n\n')
+      .replace(/\$([^$\n]+?)\$/g, (_, t) => stash(t, false));
+    let html = marked.parse(src);
+    html = html.replace(/@@M(\d+)@@/g, (_, i) => {
+      const [tex, display] = math[+i];
+      return katex.renderToString(tex.trim(), { displayMode: display, throwOnError: false });
+    });
+    el.innerHTML = html;
+    const toc = document.getElementById('toc');
+    el.querySelectorAll('h2').forEach(h => {
+      const a = document.createElement('a'); a.href = '#' + h.id; a.textContent = h.textContent; toc.appendChild(a);
+    });
+    if (location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
+  } catch (e) {
+    el.innerHTML = '<p>Could not render the documentation (' + e.message + '). The raw Markdown is available at <a href="documentation.md">documentation.md</a>.</p>';
+  }
+})();
+</script>
+</body>
+</html>

@@ -13,6 +13,11 @@ Chamfer L1/L2, Hausdorff and F-score are shown alongside, and a 3D viewer overla
 clouds (A blue, B orange). Full logic and formulas: [`docs/docs/documentation.md`](docs/docs/documentation.md)
 (rendered with KaTeX at `/docs/` on the site).
 
+**Scene similarity (separate page, `/scene/`):** for road scenes with different contents. Detects ground,
+buildings, vegetation, vehicles, pedestrians, poles and intersections from raw points (no labels, rule-based,
+no ML) and scores how much of A's content is found in B. Docs at `/scene/docs/`; code in `docs/scene/`;
+tests: `node tests/scene.test.js`. Approximate and only tested on synthetic scenes.
+
 Supported PCD formats: `ascii`, `binary`, `binary_compressed` (needs `x y z` fields).
 
 ## Layout
